@@ -24,6 +24,8 @@ struct Node {
 
   void killSelf() {
     // TODO
+    if (keys) delete[] keys;
+    if (children) delete[] children;
   }
 };
 
