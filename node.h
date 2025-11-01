@@ -18,6 +18,9 @@ struct Node {
   Node(int M) {
     keys = new TK[M - 1];
     children = new Node<TK>*[M];
+    for (int i = 0; i < M; i++) {
+      children[i] = nullptr;
+    }
     count = 0;
     leaf = true;
   }

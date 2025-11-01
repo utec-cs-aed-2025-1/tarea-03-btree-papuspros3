@@ -45,6 +45,14 @@ private:
   TK getMax(Node<TK>* node);
   void clearNode(Node<TK>* node);
   void removeFromNode(Node<TK>* node, TK key);
+  void removeFromLeaf(Node<TK>* node, int idx);
+  void removeFromInternal(Node<TK>* node, int idx);
+  void fixUnderflow(Node<TK>* node, int idx);
+  void borrowFromLeft(Node<TK>* node, int idx);
+  void borrowFromRight(Node<TK>* node, int idx);
+  void mergeWithLeft(Node<TK>* node, int idx);
+  void mergeWithRight(Node<TK>* node, int idx);
+  int getMinKeys();
 };
 
 template <typename TK>
@@ -132,9 +140,20 @@ void BTree<TK>::insertNonFull(Node<TK>* node, TK key) {
 }
 
 template <typename TK>
+int BTree<TK>::getMinKeys() {
+  // Mínimo de keys para un nodo no raíz: ⌈M/2⌉ - 1
+  return (M + 1) / 2 - 1;
+}
+
+template <typename TK>
 void BTree<TK>::remove(TK key) {
   if (!root) return;
+  
+  Node<TK>* nodeWithKey = searchNode(root, key);
+  if (!nodeWithKey) return;
+  
   removeFromNode(root, key);
+  
   if (root->count == 0) {
     Node<TK>* tmp = root;
     if (root->leaf) {
@@ -155,14 +174,30 @@ void BTree<TK>::removeFromNode(Node<TK>* node, TK key) {
   
   if (idx < node->count && node->keys[idx] == key) {
     if (node->leaf) {
-      for (int i = idx + 1; i < node->count; i++) {
-        node->keys[i - 1] = node->keys[i];
-      }
-      node->count--;
+      removeFromLeaf(node, idx);
+    } else {
+      removeFromInternal(node, idx);
     }
   } else {
     if (!node->leaf) {
+      int minKeys = (node == root) ? 1 : getMinKeys();
+      
+      if (node->children[idx]->count < minKeys + 1) {
+        fixUnderflow(node, idx);
+        idx = 0;
+        while (idx < node->count && node->keys[idx] < key) idx++;
+        if (idx == node->count) {
+          idx = node->count;
+        }
+      }
+      
       removeFromNode(node->children[idx], key);
+      
+      if (idx >= 0 && idx <= node->count && node->children[idx]) {
+        if (node->children[idx]->count < minKeys) {
+          fixUnderflow(node, idx);
+        }
+      }
     }
   }
 }
@@ -226,6 +261,190 @@ TK BTree<TK>::minKey() {
   inorder(root, all);
   if (all.empty()) return TK();
   return all[0];
+}
+
+template <typename TK>
+void BTree<TK>::removeFromLeaf(Node<TK>* node, int idx) {
+  for (int i = idx + 1; i < node->count; i++) {
+    node->keys[i - 1] = node->keys[i];
+  }
+  node->count--;
+}
+
+template <typename TK>
+void BTree<TK>::removeFromInternal(Node<TK>* node, int idx) {
+  Node<TK>* leftChild = node->children[idx];
+  Node<TK>* rightChild = node->children[idx + 1];
+  int minKeys = (node == root) ? 1 : getMinKeys();
+  
+  if (leftChild->count > minKeys) {
+    TK predecessor = getMax(leftChild);
+    node->keys[idx] = predecessor;
+    removeFromNode(leftChild, predecessor);
+    if (leftChild->count < minKeys) {
+      fixUnderflow(node, idx);
+    }
+  } else if (rightChild->count > minKeys) {
+    TK successor = getMin(rightChild);
+    node->keys[idx] = successor;
+    removeFromNode(rightChild, successor);
+    if (rightChild->count < minKeys) {
+      fixUnderflow(node, idx + 1);
+    }
+  } else {
+    TK predecessor = getMax(leftChild);
+    node->keys[idx] = predecessor;
+    removeFromNode(leftChild, predecessor);
+    mergeWithRight(node, idx);
+  }
+}
+
+template <typename TK>
+void BTree<TK>::fixUnderflow(Node<TK>* node, int idx) {
+  if (idx < 0 || idx > node->count) return;
+  
+  int minKeys = (node == root) ? 1 : getMinKeys();
+  Node<TK>* child = node->children[idx];
+  
+  if (child->count >= minKeys) return;
+  
+  if (idx > 0 && node->children[idx - 1]->count > minKeys) {
+    borrowFromLeft(node, idx);
+    return;
+  }
+  
+  if (idx < node->count && node->children[idx + 1] && node->children[idx + 1]->count > minKeys) {
+    borrowFromRight(node, idx);
+    return;
+  }
+  
+  if (idx > 0) {
+    mergeWithLeft(node, idx);
+  } else if (idx < node->count) {
+    mergeWithRight(node, idx);
+  }
+}
+
+template <typename TK>
+void BTree<TK>::borrowFromLeft(Node<TK>* node, int idx) {
+  Node<TK>* child = node->children[idx];
+  Node<TK>* leftSibling = node->children[idx - 1];
+  
+  if (!child->leaf) {
+    for (int i = child->count; i >= 0; i--) {
+      child->children[i + 1] = child->children[i];
+    }
+  }
+  for (int i = child->count - 1; i >= 0; i--) {
+    child->keys[i + 1] = child->keys[i];
+  }
+  
+  child->keys[0] = node->keys[idx - 1];
+  child->count++;
+  
+  if (!child->leaf) {
+    child->children[0] = leftSibling->children[leftSibling->count];
+  }
+  
+  node->keys[idx - 1] = leftSibling->keys[leftSibling->count - 1];
+  leftSibling->count--;
+}
+
+template <typename TK>
+void BTree<TK>::borrowFromRight(Node<TK>* node, int idx) {
+  Node<TK>* child = node->children[idx];
+  Node<TK>* rightSibling = node->children[idx + 1];
+  
+  child->keys[child->count] = node->keys[idx];
+  child->count++;
+  
+  if (!child->leaf) {
+    child->children[child->count] = rightSibling->children[0];
+  }
+  
+  node->keys[idx] = rightSibling->keys[0];
+  
+  for (int i = 1; i < rightSibling->count; i++) {
+    rightSibling->keys[i - 1] = rightSibling->keys[i];
+  }
+  
+  if (!rightSibling->leaf) {
+    for (int i = 1; i <= rightSibling->count; i++) {
+      rightSibling->children[i - 1] = rightSibling->children[i];
+    }
+  }
+  
+  rightSibling->count--;
+}
+
+template <typename TK>
+void BTree<TK>::mergeWithLeft(Node<TK>* node, int idx) {
+  Node<TK>* child = node->children[idx];
+  Node<TK>* leftSibling = node->children[idx - 1];
+  
+  leftSibling->keys[leftSibling->count] = node->keys[idx - 1];
+  int oldLeftCount = leftSibling->count;
+  leftSibling->count++;
+  
+  for (int i = 0; i < child->count; i++) {
+    leftSibling->keys[leftSibling->count + i] = child->keys[i];
+  }
+  
+  if (!child->leaf) {
+    for (int i = 0; i <= child->count; i++) {
+      leftSibling->children[oldLeftCount + 1 + i] = child->children[i];
+    }
+  }
+  
+  leftSibling->count += child->count;
+  
+  for (int i = idx - 1; i < node->count - 1; i++) {
+    node->keys[i] = node->keys[i + 1];
+  }
+  
+  for (int i = idx; i < node->count; i++) {
+    node->children[i] = node->children[i + 1];
+  }
+  
+  node->count--;
+  
+  child->killSelf();
+  delete child;
+}
+
+template <typename TK>
+void BTree<TK>::mergeWithRight(Node<TK>* node, int idx) {
+  Node<TK>* child = node->children[idx];
+  Node<TK>* rightSibling = node->children[idx + 1];
+  
+  child->keys[child->count] = node->keys[idx];
+  int oldChildCount = child->count;
+  child->count++;
+  
+  for (int i = 0; i < rightSibling->count; i++) {
+    child->keys[child->count + i] = rightSibling->keys[i];
+  }
+  
+  if (!child->leaf) {
+    for (int i = 0; i <= rightSibling->count; i++) {
+      child->children[oldChildCount + 1 + i] = rightSibling->children[i];
+    }
+  }
+  
+  child->count += rightSibling->count;
+  
+  for (int i = idx; i < node->count - 1; i++) {
+    node->keys[i] = node->keys[i + 1];
+  }
+  
+  for (int i = idx + 1; i < node->count; i++) {
+    node->children[i] = node->children[i + 1];
+  }
+  
+  node->count--;
+  
+  rightSibling->killSelf();
+  delete rightSibling;
 }
 
 template <typename TK>
