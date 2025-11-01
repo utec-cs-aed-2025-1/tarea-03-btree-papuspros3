@@ -98,7 +98,6 @@ void BTree<TK>::splitChild(Node<TK>* parent, int i) {
   Node<TK>* newChild = new Node<TK>(M);
   newChild->leaf = fullChild->leaf;
   
-  int totalKeys = fullChild->count;  // M - 1
   int minKeys = getMinKeys();
   int mid = (M - 1) / 2;
   int keysToRight = M - 1 - mid - 1;
@@ -255,7 +254,7 @@ string BTree<TK>::toString(const string& sep) {
   vector<TK> result;
   inorder(root, result);
   string s = "";
-  for (int i = 0; i < result.size(); i++) {
+  for (size_t i = 0; i < result.size(); i++) {
     if (i > 0) s += sep;
     s += to_string(result[i]);
   }
@@ -543,7 +542,7 @@ bool BTree<TK>::check_properties() {
   
   vector<TK> keys;
   inorder(root, keys);
-  for (int i = 1; i < keys.size(); i++) {
+  for (size_t i = 1; i < keys.size(); i++) {
     if (keys[i] <= keys[i-1]) return false;
   }
   
