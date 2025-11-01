@@ -53,6 +53,7 @@ private:
   void mergeWithLeft(Node<TK>* node, int idx);
   void mergeWithRight(Node<TK>* node, int idx);
   int getMinKeys();
+  bool checkNodeProperties(Node<TK>* node, bool isRoot, int& leafHeight, int currentHeight);
 };
 
 template <typename TK>
@@ -141,7 +142,6 @@ void BTree<TK>::insertNonFull(Node<TK>* node, TK key) {
 
 template <typename TK>
 int BTree<TK>::getMinKeys() {
-  // Mínimo de keys para un nodo no raíz: ⌈M/2⌉ - 1
   return (M + 1) / 2 - 1;
 }
 
@@ -505,11 +505,70 @@ BTree<TK>* BTree<TK>::build_from_ordered_vector(vector<TK> elements, int _M) {
 template <typename TK>
 bool BTree<TK>::check_properties() {
   if (!root) return true;
+  
   vector<TK> keys;
   inorder(root, keys);
   for (int i = 1; i < keys.size(); i++) {
     if (keys[i] <= keys[i-1]) return false;
   }
+  
+  int leafHeight = -1;
+  
+  if (root->count < 1) return false;
+  
+  if (!root->leaf && (root->count + 1) < 2) return false;
+  
+  return checkNodeProperties(root, true, leafHeight, 0);
+}
+
+template <typename TK>
+bool BTree<TK>::checkNodeProperties(Node<TK>* node, bool isRoot, int& leafHeight, int currentHeight) {
+  if (!node) return true;
+  
+  int minKeys = getMinKeys();
+  int minChildren = (M + 1) / 2;
+  
+  for (int i = 1; i < node->count; i++) {
+    if (node->keys[i] <= node->keys[i-1]) return false;
+  }
+  
+  if (isRoot) {
+    if (node->count < 1) return false;
+    if (node->count > M - 1) return false;
+  } else {
+    if (node->count < minKeys) return false;
+    if (node->count > M - 1) return false;
+  }
+  
+  if (node->leaf) {
+    if (leafHeight == -1) {
+      leafHeight = currentHeight;
+    } else if (leafHeight != currentHeight) {
+      return false;
+    }
+    return true;
+  }
+  
+  int numChildren = node->count + 1;
+  
+  if (isRoot) {
+    if (numChildren < 2) return false;
+    if (numChildren > M) return false;
+  } else {
+    if (numChildren < minChildren) return false;
+    if (numChildren > M) return false;
+  }
+  
+  for (int i = 0; i <= node->count; i++) {
+    if (!node->children[i]) return false;
+  }
+  
+  for (int i = 0; i <= node->count; i++) {
+    if (!checkNodeProperties(node->children[i], false, leafHeight, currentHeight + 1)) {
+      return false;
+    }
+  }
+  
   return true;
 }
 
