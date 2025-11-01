@@ -97,8 +97,21 @@ void BTree<TK>::splitChild(Node<TK>* parent, int i) {
   Node<TK>* fullChild = parent->children[i];
   Node<TK>* newChild = new Node<TK>(M);
   newChild->leaf = fullChild->leaf;
+  
+  int totalKeys = fullChild->count;  // M - 1
+  int minKeys = getMinKeys();
   int mid = (M - 1) / 2;
-  newChild->count = M - 1 - mid - 1;
+  int keysToRight = M - 1 - mid - 1;
+  
+  // Para M impar (como 3), el hijo derecho puede quedar con 0 claves después del split estándar
+  // Ajustar la distribución solo si podemos asegurar que ambos hijos tengan al menos minKeys
+  if (keysToRight == 0 && mid >= minKeys + 1) {
+    // Redistribuir: dar una clave al derecho (ajustar mid)
+    keysToRight = 1;
+    mid = mid - 1;  // Quitar una clave del izquierdo para darla al derecho
+  }
+  
+  newChild->count = keysToRight;
   for (int j = 0; j < newChild->count; j++) {
     newChild->keys[j] = fullChild->keys[j + mid + 1];
   }
@@ -108,6 +121,7 @@ void BTree<TK>::splitChild(Node<TK>* parent, int i) {
     }
   }
   fullChild->count = mid;
+  
   for (int j = parent->count; j > i; j--) {
     parent->children[j + 1] = parent->children[j];
   }
@@ -137,6 +151,27 @@ void BTree<TK>::insertNonFull(Node<TK>* node, TK key) {
       if (key > node->keys[i]) i++;
     }
     insertNonFull(node->children[i], key);
+    
+    // Después de la inserción, verificar si algún hijo adyacente tiene menos de minKeys
+    // Esto puede pasar cuando el split dejó un hijo con 0 claves y la inserción fue al otro hijo
+    int minKeys = (node == root) ? 1 : getMinKeys();
+    
+    // Verificar el hijo donde se insertó y sus hermanos adyacentes
+    int startIdx = (i-1 > 0) ? i-1 : 0;
+    int endIdx = (i+1 < node->count) ? i+1 : node->count;
+    for (int idx = startIdx; idx <= endIdx; idx++) {
+      if (node->children[idx] && node->children[idx]->count < minKeys) {
+        // Intentar pedir prestado del hermano izquierdo
+        if (idx > 0 && node->children[idx-1] && node->children[idx-1]->count > minKeys) {
+          borrowFromLeft(node, idx);
+        }
+        // O intentar pedir prestado del hermano derecho
+        else if (idx < node->count && node->children[idx+1] && 
+                 node->children[idx+1]->count > minKeys) {
+          borrowFromRight(node, idx);
+        }
+      }
+    }
   }
 }
 
